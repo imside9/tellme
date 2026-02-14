@@ -1,5 +1,6 @@
-﻿name = "tellme-mvp"
+name = "tellme-mvp"
 compatibility_date = "2026-02-14"
+pages_build_output_dir = "dist"
 
 [vars]
-# OPENAI_API_KEY 는 로컬 .dev.vars 또는 Pages 환경변수로 설정
+# Set OPENAI_API_KEY in .dev.vars locally or in Pages environment variables

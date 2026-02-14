@@ -1,5 +1,6 @@
-﻿interface Env {
+interface Env {
   OPENAI_API_KEY: string;
+  OPENAI_MODEL?: string;
 }
 
 type Tone = "polite" | "cool" | "funny";
@@ -23,12 +24,16 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 function normalizeLines(lines: string[]): string[] {
-  const cleaned = lines
+  const stripped = lines
     .map((line) => line.trim().replace(/^[-*\d.)\s]+/, ""))
-    .filter((line) => line.length >= 10 && line.length <= 60);
+    .filter(Boolean);
 
-  const unique = Array.from(new Set(cleaned)).slice(0, 3);
-  return unique;
+  const strict = stripped.filter((line) => line.length >= 6 && line.length <= 80);
+  const uniqueStrict = Array.from(new Set(strict)).slice(0, 3);
+  if (uniqueStrict.length >= 3) return uniqueStrict;
+
+  const loose = stripped.filter((line) => line.length >= 2 && line.length <= 120);
+  return Array.from(new Set([...uniqueStrict, ...loose])).slice(0, 3);
 }
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {
@@ -64,6 +69,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       '반드시 다음 형식으로만 답변: {"lines":["...","...","..."]}'
     ].join("\n");
 
+    const model = context.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
     const aiResponse = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
@@ -71,7 +77,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         authorization: `Bearer ${context.env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: "gpt-4.1-mini",
+        model,
         input: prompt,
         max_output_tokens: 220
       })
@@ -79,7 +85,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     if (!aiResponse.ok) {
       const detail = await aiResponse.text();
-      return jsonResponse({ error: `OpenAI 호출 실패: ${detail}` }, 502);
+      return jsonResponse({ error: `OpenAI 호출 실패(${aiResponse.status}): ${detail}` }, 502);
     }
 
     const payload = (await aiResponse.json()) as {
@@ -88,12 +94,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         content?: Array<{ type?: string; text?: string }>;
       }>;
     };
+
     const fallbackText =
       payload.output
         ?.flatMap((item) => item.content ?? [])
         .filter((item) => item.type === "output_text" || typeof item.text === "string")
         .map((item) => item.text ?? "")
         .join("\n") ?? "";
+
     const text = payload.output_text ?? fallbackText;
 
     let lines: string[] = [];
