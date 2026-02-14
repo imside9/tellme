@@ -38,19 +38,23 @@ function normalizeLines(lines: string[]): string[] {
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   try {
+    console.log("generate:start");
     const body = (await context.request.json()) as RequestBody;
     const situation = body.situation?.trim();
     const tone = body.tone;
 
     if (!situation || situation.length < 1 || situation.length > 80) {
+      console.warn("generate:invalid_situation");
       return jsonResponse({ error: "situation은 1~80자여야 합니다." }, 400);
     }
 
     if (!tone || !(tone in toneGuide)) {
+      console.warn("generate:invalid_tone");
       return jsonResponse({ error: "tone 값이 올바르지 않습니다." }, 400);
     }
 
     if (!context.env.OPENAI_API_KEY) {
+      console.error("generate:missing_openai_api_key");
       return jsonResponse({ error: "서버 설정 오류: OPENAI_API_KEY 누락" }, 500);
     }
 
@@ -85,6 +89,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     if (!aiResponse.ok) {
       const detail = await aiResponse.text();
+      console.error("generate:openai_error", aiResponse.status, detail.slice(0, 400));
       return jsonResponse({ error: `OpenAI 호출 실패(${aiResponse.status}): ${detail}` }, 502);
     }
 
@@ -118,11 +123,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const normalized = normalizeLines(lines);
 
     if (normalized.length < 3) {
+      console.warn("generate:insufficient_lines", { rawCount: lines.length, normalizedCount: normalized.length });
       return jsonResponse({ error: "문장 생성에 실패했습니다. 다시 시도해 주세요." }, 502);
     }
 
+    console.log("generate:ok");
     return jsonResponse({ lines: normalized });
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("generate:unhandled_error", message);
     return jsonResponse({ error: "요청 처리 중 오류가 발생했습니다." }, 500);
   }
 };
