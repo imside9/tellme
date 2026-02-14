@@ -1,5 +1,7 @@
 interface Env {
   GEMINI_API_KEY: string;
+  GOOGLE_API_KEY?: string;
+  GEMINI_KEY?: string;
   GEMINI_MODEL?: string;
 }
 
@@ -57,7 +59,8 @@ function extractGeminiText(payload: unknown): string {
 
 async function requestGeminiLines(prompt: string, env: Env): Promise<string[]> {
   const model = (env.GEMINI_MODEL || "gemini-2.5-flash").trim();
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
+  const apiKey = resolveGeminiApiKey(env);
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
   const response = await fetch(endpoint, {
     method: "POST",
@@ -99,6 +102,10 @@ async function requestGeminiLines(prompt: string, env: Env): Promise<string[]> {
     .filter(Boolean);
 }
 
+function resolveGeminiApiKey(env: Env): string {
+  return (env.GEMINI_API_KEY || env.GOOGLE_API_KEY || env.GEMINI_KEY || "").trim();
+}
+
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   try {
     console.log("generate:start");
@@ -114,8 +121,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       return jsonResponse({ error: "invalid tone value." }, 400);
     }
 
-    if (!context.env.GEMINI_API_KEY) {
-      return jsonResponse({ error: "server config error: GEMINI_API_KEY is missing." }, 500);
+    const apiKey = resolveGeminiApiKey(context.env);
+    if (!apiKey) {
+      return jsonResponse(
+        { error: "server config error: GEMINI_API_KEY (or GOOGLE_API_KEY/GEMINI_KEY) is missing." },
+        500
+      );
     }
 
     const prompt = [
