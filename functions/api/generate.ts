@@ -1,10 +1,6 @@
-type AiBinding = {
-  run: (model: string, input: Record<string, unknown>) => Promise<unknown>;
-};
-
 interface Env {
-  AI: AiBinding;
-  WORKERS_AI_MODEL?: string;
+  GEMINI_API_KEY: string;
+  GEMINI_MODEL?: string;
 }
 
 type Tone = "polite" | "cool" | "funny";
@@ -40,35 +36,55 @@ function normalizeLines(lines: string[]): string[] {
   return Array.from(new Set([...uniqueStrict, ...loose])).slice(0, 3);
 }
 
-function extractTextFromAiResult(result: unknown): string {
-  if (!result || typeof result !== "object") return "";
-  const payload = result as {
-    response?: string;
-    output_text?: string;
-    result?: { response?: string };
+function extractGeminiText(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "";
+  const data = payload as {
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{ text?: string }>;
+      };
+    }>;
   };
-  return payload.response ?? payload.output_text ?? payload.result?.response ?? "";
+
+  return (
+    data.candidates
+      ?.flatMap((candidate) => candidate.content?.parts ?? [])
+      .map((part) => part.text ?? "")
+      .join("\n")
+      .trim() ?? ""
+  );
 }
 
-async function requestWorkersAiLines(prompt: string, env: Env): Promise<string[]> {
-  const model = env.WORKERS_AI_MODEL?.trim() || "@cf/meta/llama-3.1-8b-instruct";
-  const result = await env.AI.run(model, {
-    messages: [
-      {
-        role: "system",
-        content:
-          "You generate Korean messenger reply lines. Return only JSON in this format: {\"lines\":[\"...\",\"...\",\"...\"]}."
-      },
-      { role: "user", content: prompt }
-    ],
-    max_tokens: 220,
-    temperature: 0.7
+async function requestGeminiLines(prompt: string, env: Env): Promise<string[]> {
+  const model = (env.GEMINI_MODEL || "gemini-2.5-flash").trim();
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: prompt }]
+        }
+      ],
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 220,
+        responseMimeType: "application/json"
+      }
+    })
   });
 
-  const text = extractTextFromAiResult(result).trim();
-  if (!text) {
-    throw new Error("workers_ai_empty_output");
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`gemini_failed(${response.status}): ${detail.slice(0, 400)}`);
   }
+
+  const payload = (await response.json()) as unknown;
+  const text = extractGeminiText(payload);
+  if (!text) throw new Error("gemini_empty_output");
 
   try {
     const parsed = JSON.parse(text) as { lines?: string[] };
@@ -91,18 +107,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const tone = body.tone;
 
     if (!situation || situation.length < 1 || situation.length > 80) {
-      console.warn("generate:invalid_situation");
       return jsonResponse({ error: "situation must be 1 to 80 characters." }, 400);
     }
 
     if (!tone || !(tone in toneGuide)) {
-      console.warn("generate:invalid_tone");
       return jsonResponse({ error: "invalid tone value." }, 400);
     }
 
-    if (!context.env.AI) {
-      console.error("generate:missing_ai_binding");
-      return jsonResponse({ error: "server config error: Workers AI binding is missing." }, 500);
+    if (!context.env.GEMINI_API_KEY) {
+      return jsonResponse({ error: "server config error: GEMINI_API_KEY is missing." }, 500);
     }
 
     const prompt = [
@@ -119,11 +132,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       'Required format: {"lines":["...","...","..."]}'
     ].join("\n");
 
-    const lines = await requestWorkersAiLines(prompt, context.env);
+    const lines = await requestGeminiLines(prompt, context.env);
     const normalized = normalizeLines(lines);
 
     if (normalized.length < 3) {
-      console.warn("generate:insufficient_lines", { rawCount: lines.length, normalizedCount: normalized.length });
       return jsonResponse({ error: "failed to generate enough lines. please retry." }, 502);
     }
 
@@ -131,7 +143,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     return jsonResponse({ lines: normalized });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error("generate:workers_ai_error", message);
+    console.error("generate:gemini_error", message);
     return jsonResponse({ error: "generation failed. please try again shortly." }, 502);
   }
 };
