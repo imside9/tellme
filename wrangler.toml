@@ -2,5 +2,5 @@ name = "tellme-mvp"
 compatibility_date = "2026-02-14"
 pages_build_output_dir = "dist"
 
-[vars]
-# Set OPENAI_API_KEY in .dev.vars locally or in Pages environment variables
+[ai]
+binding = "AI"

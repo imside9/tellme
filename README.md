@@ -10,7 +10,7 @@ npm.cmd install
 Copy-Item .dev.vars.example .dev.vars
 ```
 
-`.dev.vars`를 열어서 `OPENAI_API_KEY` 값을 실제 키로 바꿔 주세요.
+`.dev.vars`를 열어서 Workers AI 관련 값을 채워 주세요.
 
 ## 프론트만 확인
 
@@ -31,7 +31,7 @@ npm.cmd run dev:pages
 ## `.dev.vars` 예시
 
 ```env
-OPENAI_API_KEY=your_openai_api_key
+WORKERS_AI_MODEL=@cf/meta/llama-3.1-8b-instruct
 ```
 
 ## 배포
@@ -40,8 +40,9 @@ OPENAI_API_KEY=your_openai_api_key
 2. Cloudflare Pages > Create project > 해당 저장소 연결
 3. Build command: `npm run build`
 4. Build output directory: `dist`
-5. Environment Variables에 `OPENAI_API_KEY` 추가
-6. Deploy
+5. Bindings에서 `Workers AI`를 추가하고 이름을 `AI`로 설정
+6. (선택) Environment Variables에 `WORKERS_AI_MODEL` 추가
+7. Deploy
 
 ## Cloudflare Pages 점검 체크리스트
 
@@ -50,7 +51,7 @@ OPENAI_API_KEY=your_openai_api_key
 1. Pages 프로젝트의 `Root directory`가 `tellme`인지 확인
 2. `Build command`가 `npm run build`인지 확인
 3. `Build output directory`가 `dist`인지 확인 (`/dist` 아님)
-4. `OPENAI_API_KEY`가 Production 환경변수에 있는지 확인
+4. `Settings > Bindings`에 Workers AI binding `AI`가 있는지 확인
 5. `Settings > Functions`에서 Advanced mode(`_worker.js`)가 `functions/` 라우팅을 덮어쓰지 않는지 확인
 6. `Clear build cache` 후 재배포
 

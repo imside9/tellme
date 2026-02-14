@@ -1,6 +1,10 @@
+type AiBinding = {
+  run: (model: string, input: Record<string, unknown>) => Promise<unknown>;
+};
+
 interface Env {
-  OPENAI_API_KEY: string;
-  OPENAI_MODEL?: string;
+  AI: AiBinding;
+  WORKERS_AI_MODEL?: string;
 }
 
 type Tone = "polite" | "cool" | "funny";
@@ -11,9 +15,9 @@ type RequestBody = {
 };
 
 const toneGuide: Record<Tone, string> = {
-  polite: "부드럽고 예의 있게",
-  cool: "담백하고 거리감 적당히",
-  funny: "가볍게 웃기되 무례/혐오 금지"
+  polite: "soft and respectful tone",
+  cool: "short and calm tone",
+  funny: "light and playful tone without being rude"
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -36,6 +40,49 @@ function normalizeLines(lines: string[]): string[] {
   return Array.from(new Set([...uniqueStrict, ...loose])).slice(0, 3);
 }
 
+function extractTextFromAiResult(result: unknown): string {
+  if (!result || typeof result !== "object") return "";
+  const payload = result as {
+    response?: string;
+    output_text?: string;
+    result?: { response?: string };
+  };
+  return payload.response ?? payload.output_text ?? payload.result?.response ?? "";
+}
+
+async function requestWorkersAiLines(prompt: string, env: Env): Promise<string[]> {
+  const model = env.WORKERS_AI_MODEL?.trim() || "@cf/meta/llama-3.1-8b-instruct";
+  const result = await env.AI.run(model, {
+    messages: [
+      {
+        role: "system",
+        content:
+          "You generate Korean messenger reply lines. Return only JSON in this format: {\"lines\":[\"...\",\"...\",\"...\"]}."
+      },
+      { role: "user", content: prompt }
+    ],
+    max_tokens: 220,
+    temperature: 0.7
+  });
+
+  const text = extractTextFromAiResult(result).trim();
+  if (!text) {
+    throw new Error("workers_ai_empty_output");
+  }
+
+  try {
+    const parsed = JSON.parse(text) as { lines?: string[] };
+    if (Array.isArray(parsed.lines)) return parsed.lines;
+  } catch {
+    // Fallback to line split below.
+  }
+
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   try {
     console.log("generate:start");
@@ -45,93 +92,46 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     if (!situation || situation.length < 1 || situation.length > 80) {
       console.warn("generate:invalid_situation");
-      return jsonResponse({ error: "situation은 1~80자여야 합니다." }, 400);
+      return jsonResponse({ error: "situation must be 1 to 80 characters." }, 400);
     }
 
     if (!tone || !(tone in toneGuide)) {
       console.warn("generate:invalid_tone");
-      return jsonResponse({ error: "tone 값이 올바르지 않습니다." }, 400);
+      return jsonResponse({ error: "invalid tone value." }, 400);
     }
 
-    if (!context.env.OPENAI_API_KEY) {
-      console.error("generate:missing_openai_api_key");
-      return jsonResponse({ error: "서버 설정 오류: OPENAI_API_KEY 누락" }, 500);
+    if (!context.env.AI) {
+      console.error("generate:missing_ai_binding");
+      return jsonResponse({ error: "server config error: Workers AI binding is missing." }, 500);
     }
 
     const prompt = [
-      "너는 한국어 카카오톡 한 줄 멘트 생성기다.",
-      `상황: ${situation}`,
-      `톤 가이드: ${toneGuide[tone]}`,
-      "규칙:",
-      "- 10~20대가 실제로 보낼 법한 카톡 말투",
-      "- 오글거림 최소화",
-      "- 과도한 이모지 금지",
-      "- 길이 10~60자",
-      "- 실사용 가능한 문장만",
-      "- 서로 중복 없는 문장 3개",
-      "- JSON 형식만 출력",
-      '반드시 다음 형식으로만 답변: {"lines":["...","...","..."]}'
+      "Task: generate 3 Korean KakaoTalk one-line replies.",
+      `Situation: ${situation}`,
+      `Tone guide: ${toneGuide[tone]}`,
+      "Rules:",
+      "- Realistic Korean chat style for teens/20s",
+      "- Avoid cringe",
+      "- Avoid excessive emoji",
+      "- Each line length: 10~60 chars preferred",
+      "- Exactly 3 distinct lines",
+      "- Output JSON only",
+      'Required format: {"lines":["...","...","..."]}'
     ].join("\n");
 
-    const model = context.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
-    const aiResponse = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${context.env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model,
-        input: prompt,
-        max_output_tokens: 220
-      })
-    });
-
-    if (!aiResponse.ok) {
-      const detail = await aiResponse.text();
-      console.error("generate:openai_error", aiResponse.status, detail.slice(0, 400));
-      return jsonResponse({ error: `OpenAI 호출 실패(${aiResponse.status}): ${detail}` }, 502);
-    }
-
-    const payload = (await aiResponse.json()) as {
-      output_text?: string;
-      output?: Array<{
-        content?: Array<{ type?: string; text?: string }>;
-      }>;
-    };
-
-    const fallbackText =
-      payload.output
-        ?.flatMap((item) => item.content ?? [])
-        .filter((item) => item.type === "output_text" || typeof item.text === "string")
-        .map((item) => item.text ?? "")
-        .join("\n") ?? "";
-
-    const text = payload.output_text ?? fallbackText;
-
-    let lines: string[] = [];
-    try {
-      const parsed = JSON.parse(text) as { lines?: string[] };
-      lines = Array.isArray(parsed.lines) ? parsed.lines : [];
-    } catch {
-      lines = text
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean);
-    }
-
+    const lines = await requestWorkersAiLines(prompt, context.env);
     const normalized = normalizeLines(lines);
 
     if (normalized.length < 3) {
       console.warn("generate:insufficient_lines", { rawCount: lines.length, normalizedCount: normalized.length });
-      return jsonResponse({ error: "문장 생성에 실패했습니다. 다시 시도해 주세요." }, 502);
+      return jsonResponse({ error: "failed to generate enough lines. please retry." }, 502);
     }
 
     console.log("generate:ok");
     return jsonResponse({ lines: normalized });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error("generate:unhandled_error", message);
-    return jsonResponse({ error: "요청 처리 중 오류가 발생했습니다." }, 500);
+    console.error("generate:workers_ai_error", message);
+    return jsonResponse({ error: "generation failed. please try again shortly." }, 502);
   }
 };
