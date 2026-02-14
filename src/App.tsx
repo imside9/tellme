@@ -1,4 +1,4 @@
-ï»¿import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useRef, useState } from "react";
 
 type Tone = "polite" | "cool" | "funny";
 
@@ -7,12 +7,12 @@ type ResultResponse = {
 };
 
 const toneOptions: Array<{ key: Tone; label: string }> = [
-  { key: "polite", label: "ğŸ¥¹ ê³µì†" },
-  { key: "cool", label: "ğŸ˜ ì¿¨" },
-  { key: "funny", label: "ğŸ’€ ì›ƒê¹€" }
+  { key: "polite", label: "?? °ø¼Õ" },
+  { key: "cool", label: "?? Äğ" },
+  { key: "funny", label: "?? ¿ô±è" }
 ];
 
-const popularChips = ["ì†Œê°œíŒ… ê±°ì ˆ", "ì½ì”¹ ë³µêµ¬", "ì„  ê¸‹ê¸°", "ëŠ¦ì  ì‚¬ê³¼"];
+const popularChips = ["¼Ò°³ÆÃ °ÅÀı", "ÀĞ¾Ã º¹±¸", "¼± ±ß±â", "´ÊÀá »ç°ú"];
 const storageKey = "tellme_recent_searches";
 
 function readRecentSearches(): string[] {
@@ -39,6 +39,8 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState("");
   const [recentSearches, setRecentSearches] = useState<string[]>(() => readRecentSearches());
+  const inputRef = useRef<HTMLInputElement>(null);
+  const searchPanelRef = useRef<HTMLElement>(null);
 
   const canSubmit = useMemo(() => {
     const text = situation.trim();
@@ -49,10 +51,11 @@ function App() {
     event.preventDefault();
     const trimmed = situation.trim();
     if (trimmed.length < 1 || trimmed.length > 80) {
-      setError("ìƒí™©ì€ 1~80ìë¡œ ì…ë ¥í•´ ì£¼ì„¸ìš”.");
+      setError("»óÈ²Àº 1~80ÀÚ·Î ÀÔ·ÂÇØ ÁÖ¼¼¿ä.");
       return;
     }
 
+    setLines([]);
     setError(null);
     setIsLoading(true);
 
@@ -66,7 +69,7 @@ function App() {
       const data = (await response.json()) as ResultResponse & { error?: string };
 
       if (!response.ok) {
-        throw new Error(data.error ?? "ë¬¸ì¥ ìƒì„±ì— ì‹¤íŒ¨í–ˆìŠµë‹ˆë‹¤.");
+        throw new Error(data.error ?? "¹®Àå »ı¼º¿¡ ½ÇÆĞÇß½À´Ï´Ù.");
       }
 
       setLines(data.lines);
@@ -75,20 +78,39 @@ function App() {
       setRecentSearches(updated);
       saveRecentSearches(updated);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "ì•Œ ìˆ˜ ì—†ëŠ” ì˜¤ë¥˜ê°€ ë°œìƒí–ˆìŠµë‹ˆë‹¤.";
+      const message = err instanceof Error ? err.message : "¾Ë ¼ö ¾ø´Â ¿À·ù°¡ ¹ß»ıÇß½À´Ï´Ù.";
       setError(message);
     } finally {
       setIsLoading(false);
     }
   };
 
+  const handleResetForResearch = () => {
+    setLines([]);
+    setError(null);
+    searchPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    inputRef.current?.focus();
+  };
+
+  const handleSituationChange = (value: string) => {
+    setSituation(value);
+    setLines([]);
+    setError(null);
+  };
+
+  const handleToneChange = (nextTone: Tone) => {
+    setTone(nextTone);
+    setLines([]);
+    setError(null);
+  };
+
   const handleCopy = async (line: string) => {
     try {
       await navigator.clipboard.writeText(line);
-      setToast("ë³µì‚¬ë¨");
+      setToast("º¹»çµÊ");
       setTimeout(() => setToast(""), 1000);
     } catch {
-      setToast("ë³µì‚¬ ì‹¤íŒ¨");
+      setToast("º¹»ç ½ÇÆĞ");
       setTimeout(() => setToast(""), 1000);
     }
   };
@@ -97,60 +119,56 @@ function App() {
     <div className="page">
       <main className="container">
         <header className="hero">
-          <h1>ë‹µì¥, ë„ˆë¬´ ì˜¤ë˜ ê³ ë¯¼í•˜ì§€ ë§ˆ.</h1>
-          <p>ì§€ê¸ˆ ë³´ë‚´ë„ ì–´ìƒ‰í•˜ì§€ ì•Šì€ í•œ ì¤„.</p>
+          <h1>¸Ş½ÅÀú ´äÀå ÇÑÁÙ</h1>
+          <p>´äÀåÀº ÀÌÁ¦ °í¹Î ¸»°í °Ë»öÇÏÀÚ!</p>
         </header>
 
-        <section className="panel">
+        <section className="panel" ref={searchPanelRef}>
           <form onSubmit={handleGenerate}>
             <label htmlFor="situation" className="input-wrap">
               <span className="icon" aria-hidden>
-                ğŸ’¬
+                ??
               </span>
               <input
+                ref={inputRef}
                 id="situation"
                 type="text"
                 value={situation}
-                onChange={(e) => setSituation(e.target.value)}
+                onChange={(e) => handleSituationChange(e.target.value)}
                 maxLength={80}
-                placeholder="ì˜ˆ: ì†Œê°œíŒ… ê±°ì ˆ / ëŠ¦ì  ì‚¬ê³¼ / ì½ì”¹ ë³µêµ¬"
+                placeholder="¿¹: ¼Ò°³ÆÃ °ÅÀı / ´ÊÀá »ç°ú / ÀĞ¾Ã º¹±¸"
               />
             </label>
 
-            <div className="tone-group" role="radiogroup" aria-label="í†¤ ì„ íƒ">
+            <div className="tone-group" role="radiogroup" aria-label="Åæ ¼±ÅÃ">
               {toneOptions.map((option) => (
                 <button
                   type="button"
                   key={option.key}
                   className={tone === option.key ? "tone-btn selected" : "tone-btn"}
-                  onClick={() => setTone(option.key)}
+                  onClick={() => handleToneChange(option.key)}
                 >
                   {option.label}
                 </button>
               ))}
             </div>
 
-            <div className="chip-group" aria-label="ì¸ê¸° ìƒí™©">
+            <div className="chip-group" aria-label="ÀÎ±â »óÈ²">
               {popularChips.map((chip) => (
-                <button
-                  type="button"
-                  key={chip}
-                  className="chip"
-                  onClick={() => setSituation(chip)}
-                >
+                <button type="button" key={chip} className="chip" onClick={() => handleSituationChange(chip)}>
                   {chip}
                 </button>
               ))}
             </div>
 
             {recentSearches.length > 0 && (
-              <div className="recent-group" aria-label="ìµœê·¼ ê²€ìƒ‰">
+              <div className="recent-group" aria-label="ÃÖ±Ù °Ë»ö">
                 {recentSearches.map((item) => (
                   <button
                     type="button"
                     key={item}
                     className="chip recent"
-                    onClick={() => setSituation(item)}
+                    onClick={() => handleSituationChange(item)}
                   >
                     {item}
                   </button>
@@ -158,31 +176,35 @@ function App() {
               </div>
             )}
 
-            <button type="submit" className="submit-btn" disabled={!canSubmit}>
-              {isLoading ? "ìƒì„± ì¤‘..." : "ë©˜íŠ¸ 3ê°œ ë³´ê¸°"}
-            </button>
+            {lines.length > 0 ? (
+              <button type="button" className="submit-btn" onClick={handleResetForResearch}>
+                ´Ù½Ã °Ë»ö
+              </button>
+            ) : (
+              <button type="submit" className="submit-btn" disabled={!canSubmit}>
+                {isLoading ? "»ı¼º Áß..." : "¸àÆ® 3°³ º¸±â"}
+              </button>
+            )}
           </form>
         </section>
 
-        {error && <p className="error">{error}</p>}
+        {isLoading && <p className="status-text">¹®ÀåÀ» ¸¸µå´Â Áß...</p>}
+        {!isLoading && error && <p className="error">{error}</p>}
 
-        <section className="result-list" aria-live="polite">
-          {(lines.length ? lines : ["", "", ""]).map((line, index) => (
-            <article className="result-card" key={`line-${index}`}>
-              <p className="result-line">{line || "ì—¬ê¸°ì— ê²°ê³¼ê°€ í‘œì‹œë©ë‹ˆë‹¤."}</p>
-              <button
-                type="button"
-                className="copy-btn"
-                onClick={() => line && handleCopy(line)}
-                disabled={!line}
-              >
-                ğŸ“‹ ë³µì‚¬
-              </button>
-            </article>
-          ))}
-        </section>
+        {!isLoading && !error && lines.length > 0 && (
+          <section className="result-list" aria-live="polite">
+            {lines.map((line, index) => (
+              <article className="result-card" key={`line-${index}`}>
+                <p className="result-line">{line}</p>
+                <button type="button" className="copy-btn" onClick={() => handleCopy(line)}>
+                  ?? º¹»ç
+                </button>
+              </article>
+            ))}
+          </section>
+        )}
 
-        <footer className="footer-note">ì´ê³³ì€ ê¸°ë¡ì„ ë‚¨ê¸°ì§€ ì•ŠìŠµë‹ˆë‹¤.</footer>
+        <footer className="footer-note">ÀÌ°÷Àº ±â·ÏÀ» ³²±âÁö ¾Ê½À´Ï´Ù.</footer>
       </main>
 
       {toast && <div className="toast">{toast}</div>}
