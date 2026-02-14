@@ -106,6 +106,28 @@ function resolveGeminiApiKey(env: Env): string {
   return (env.GEMINI_API_KEY || env.GOOGLE_API_KEY || env.GEMINI_KEY || "").trim();
 }
 
+function buildFallbackLines(situation: string, tone: Tone): string[] {
+  if (tone === "polite") {
+    return [
+      `${situation} 관련해서 천천히 정리해서 다시 연락드릴게요.`,
+      `말해줘서 고마워요. ${situation}는 이렇게 진행하면 좋을 것 같아요.`,
+      `${situation} 건은 제가 먼저 확인해보고 편하게 다시 답장할게요.`
+    ];
+  }
+  if (tone === "cool") {
+    return [
+      `${situation} 건은 내가 확인하고 다시 말해줄게.`,
+      `${situation}은 이렇게 정리하면 될 듯.`,
+      `오케이, ${situation}는 내가 맞춰볼게.`
+    ];
+  }
+  return [
+    `${situation}? 오케이, 일단 살려는 볼게.`,
+    `${situation} 모드 on, 오늘은 내가 캐리한다.`,
+    `${situation} 접수 완료, 드라마 없이 깔끔하게 가자.`
+  ];
+}
+
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   try {
     console.log("generate:start");
@@ -138,16 +160,17 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       "- Avoid cringe",
       "- Avoid excessive emoji",
       "- Each line length: 10~60 chars preferred",
-      "- Exactly 3 distinct lines",
+      "- Give 5 distinct lines so we can pick best 3",
       "- Output JSON only",
-      'Required format: {"lines":["...","...","..."]}'
+      'Required format: {"lines":["...","...","...","...","..."]}'
     ].join("\n");
 
     const lines = await requestGeminiLines(prompt, context.env);
     const normalized = normalizeLines(lines);
 
     if (normalized.length < 3) {
-      return jsonResponse({ error: "failed to generate enough lines. please retry." }, 502);
+      const fallback = buildFallbackLines(situation, tone);
+      return jsonResponse({ lines: normalizeLines([...normalized, ...fallback]).slice(0, 3) });
     }
 
     console.log("generate:ok");
