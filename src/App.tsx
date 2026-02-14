@@ -25,9 +25,10 @@ const uiText = {
   invalidSituation: "\uC0C1\uD669\uC740 1~80\uC790\uB85C \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
   generationFailed: "\uBB38\uC7A5 \uC0DD\uC131\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   unknownError: "\uC54C \uC218 \uC5C6\uB294 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.",
-  parseFailed: "\uC11C\uBC84 \uC751\uB2F5 \uD30C\uC2F1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",
-  htmlResponse:
-    "API \uC751\uB2F5\uC774 HTML\uC785\uB2C8\uB2E4. Cloudflare Pages\uC5D0\uC11C Functions\uAC00 \uD65C\uC131\uD654\uB418\uC5C8\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694."
+  parseFailed:
+    "\uC11C\uBC84 \uC751\uB2F5 \uD30C\uC2F1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",
+  htmlStatusPrefix:
+    "API\uAC00 HTML\uC744 \uBC18\uD658\uD588\uC2B5\uB2C8\uB2E4 (HTTP "
 };
 
 const toneOptions: Array<{ key: Tone; label: string }> = [
@@ -44,7 +45,7 @@ const popularChips = [
 ];
 
 const storageKey = "tellme_recent_searches";
-const endpointCandidates = ["/api/generate", "api/generate"] as const;
+const endpoint = "/api/generate";
 
 function readRecentSearches(): string[] {
   try {
@@ -75,47 +76,32 @@ function parseApiResponse(rawBody: string): ApiResponse | null {
 }
 
 async function requestGeneratedLines(payload: { situation: string; tone: Tone }): Promise<string[]> {
-  let sawHtmlFallback = false;
-  let lastError: Error | null = null;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
 
-  for (const endpoint of endpointCandidates) {
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
+  const contentType = response.headers.get("content-type") ?? "";
+  const rawBody = await response.text();
+  const data = parseApiResponse(rawBody);
 
-      const contentType = response.headers.get("content-type") ?? "";
-      const rawBody = await response.text();
-      const data = parseApiResponse(rawBody);
-
-      if (!data || typeof data !== "object") {
-        if (isHtmlResponse(contentType, rawBody)) {
-          sawHtmlFallback = true;
-          continue;
-        }
-        throw new Error(uiText.parseFailed);
-      }
-
-      if (!response.ok) {
-        throw new Error(data.error ?? uiText.generationFailed);
-      }
-
-      if (!Array.isArray(data.lines)) {
-        throw new Error(uiText.parseFailed);
-      }
-
-      return data.lines;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(uiText.unknownError);
+  if (!data || typeof data !== "object") {
+    if (isHtmlResponse(contentType, rawBody)) {
+      throw new Error(`${uiText.htmlStatusPrefix}${response.status}).`);
     }
+    throw new Error(uiText.parseFailed);
   }
 
-  if (sawHtmlFallback) {
-    throw new Error(uiText.htmlResponse);
+  if (!response.ok) {
+    throw new Error(data.error ?? uiText.generationFailed);
   }
-  throw lastError ?? new Error(uiText.unknownError);
+
+  if (!Array.isArray(data.lines)) {
+    throw new Error(uiText.parseFailed);
+  }
+
+  return data.lines;
 }
 
 function App() {
@@ -203,7 +189,7 @@ function App() {
           <form onSubmit={handleGenerate}>
             <label htmlFor="situation" className="input-wrap">
               <span className="icon" aria-hidden>
-                💬
+                {"\uD83D\uDCAC"}
               </span>
               <input
                 ref={inputRef}
@@ -216,7 +202,7 @@ function App() {
               />
             </label>
 
-            <div className="tone-group" role="radiogroup" aria-label="톤 선택">
+            <div className="tone-group" role="radiogroup" aria-label="\uD1A4 \uC120\uD0DD">
               {toneOptions.map((option) => (
                 <button
                   type="button"
@@ -229,7 +215,7 @@ function App() {
               ))}
             </div>
 
-            <div className="chip-group" aria-label="인기 상황">
+            <div className="chip-group" aria-label="\uC778\uAE30 \uC0C1\uD669">
               {popularChips.map((chip) => (
                 <button type="button" key={chip} className="chip" onClick={() => handleSituationChange(chip)}>
                   {chip}
@@ -238,7 +224,7 @@ function App() {
             </div>
 
             {recentSearches.length > 0 && (
-              <div className="recent-group" aria-label="최근 검색">
+              <div className="recent-group" aria-label="\uCD5C\uADFC \uAC80\uC0C9">
                 {recentSearches.map((item) => (
                   <button
                     type="button"
