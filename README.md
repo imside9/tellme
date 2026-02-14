@@ -43,6 +43,25 @@ OPENAI_API_KEY=your_openai_api_key
 5. Environment Variables에 `OPENAI_API_KEY` 추가
 6. Deploy
 
+## Cloudflare Pages 점검 체크리스트
+
+`POST /api/generate`가 JSON이 아닌 HTML(`<!DOCTYPE ...`)을 반환하면 아래를 확인하세요.
+
+1. Pages 프로젝트의 `Root directory`가 `tellme`인지 확인
+2. `Build command`가 `npm run build`인지 확인
+3. `Build output directory`가 `dist`인지 확인 (`/dist` 아님)
+4. `OPENAI_API_KEY`가 Production 환경변수에 있는지 확인
+5. `Settings > Functions`에서 Advanced mode(`_worker.js`)가 `functions/` 라우팅을 덮어쓰지 않는지 확인
+6. `Clear build cache` 후 재배포
+
+배포 후 검증:
+
+```bash
+curl -i -X POST https://<your-domain>/api/generate \
+  -H "content-type: application/json" \
+  --data "{\"situation\":\"테스트\",\"tone\":\"polite\"}"
+```
+
 ## API
 
 - `POST /api/generate`

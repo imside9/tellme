@@ -5,16 +5,46 @@ type Tone = "polite" | "cool" | "funny";
 type ResultResponse = {
   lines: string[];
 };
-type ApiResponse = ResultResponse & { error?: string };
+
+type ApiResponse = ResultResponse & {
+  error?: string;
+};
+
+const uiText = {
+  title: "\uBA54\uC2E0\uC800 \uB2F5\uC7A5 \uD55C\uC904",
+  subtitle: "\uB2F5\uC7A5\uC740 \uC774\uC81C \uACE0\uBBFC \uB9D0\uACE0 \uAC80\uC0C9\uD558\uC790!",
+  inputPlaceholder:
+    "\uC608: \uC18C\uAC1C\uD305 \uAC70\uC808 / \uB2A6\uC7A0 \uC0AC\uACFC / \uC77D\uC539 \uBCF5\uAD6C",
+  loading: "\uBB38\uC7A5\uC744 \uB9CC\uB4DC\uB294 \uC911...",
+  showLines: "\uBA58\uD2B8 3\uAC1C \uBCF4\uAE30",
+  regenerate: "\uB2E4\uC2DC \uAC80\uC0C9",
+  copy: "\uD83D\uDCCB \uBCF5\uC0AC",
+  copied: "\uBCF5\uC0AC\uB428",
+  copyFailed: "\uBCF5\uC0AC \uC2E4\uD328",
+  footer: "\uC774\uACF3\uC740 \uAE30\uB85D\uC744 \uB0A8\uAE30\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
+  invalidSituation: "\uC0C1\uD669\uC740 1~80\uC790\uB85C \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
+  generationFailed: "\uBB38\uC7A5 \uC0DD\uC131\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+  unknownError: "\uC54C \uC218 \uC5C6\uB294 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.",
+  parseFailed: "\uC11C\uBC84 \uC751\uB2F5 \uD30C\uC2F1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",
+  htmlResponse:
+    "API \uC751\uB2F5\uC774 HTML\uC785\uB2C8\uB2E4. Cloudflare Pages\uC5D0\uC11C Functions\uAC00 \uD65C\uC131\uD654\uB418\uC5C8\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694."
+};
 
 const toneOptions: Array<{ key: Tone; label: string }> = [
-  { key: "polite", label: "공손" },
-  { key: "cool", label: "쿨" },
-  { key: "funny", label: "웃김" }
+  { key: "polite", label: "\uACF5\uC190" },
+  { key: "cool", label: "\uCFE8" },
+  { key: "funny", label: "\uC6C3\uAE40" }
 ];
 
-const popularChips = ["소개팅 거절", "읽씹 복구", "선 긋기", "늦잠 사과"];
+const popularChips = [
+  "\uC18C\uAC1C\uD305 \uAC70\uC808",
+  "\uC77D\uC539 \uBCF5\uAD6C",
+  "\uC120 \uAE0B\uAE30",
+  "\uB2A6\uC7A0 \uC0AC\uACFC"
+];
+
 const storageKey = "tellme_recent_searches";
+const endpointCandidates = ["/api/generate", "api/generate"] as const;
 
 function readRecentSearches(): string[] {
   try {
@@ -30,6 +60,62 @@ function readRecentSearches(): string[] {
 
 function saveRecentSearches(items: string[]): void {
   localStorage.setItem(storageKey, JSON.stringify(items.slice(0, 5)));
+}
+
+function isHtmlResponse(contentType: string, body: string): boolean {
+  return contentType.includes("text/html") || body.trimStart().startsWith("<!DOCTYPE");
+}
+
+function parseApiResponse(rawBody: string): ApiResponse | null {
+  try {
+    return JSON.parse(rawBody) as ApiResponse;
+  } catch {
+    return null;
+  }
+}
+
+async function requestGeneratedLines(payload: { situation: string; tone: Tone }): Promise<string[]> {
+  let sawHtmlFallback = false;
+  let lastError: Error | null = null;
+
+  for (const endpoint of endpointCandidates) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const contentType = response.headers.get("content-type") ?? "";
+      const rawBody = await response.text();
+      const data = parseApiResponse(rawBody);
+
+      if (!data || typeof data !== "object") {
+        if (isHtmlResponse(contentType, rawBody)) {
+          sawHtmlFallback = true;
+          continue;
+        }
+        throw new Error(uiText.parseFailed);
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error ?? uiText.generationFailed);
+      }
+
+      if (!Array.isArray(data.lines)) {
+        throw new Error(uiText.parseFailed);
+      }
+
+      return data.lines;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(uiText.unknownError);
+    }
+  }
+
+  if (sawHtmlFallback) {
+    throw new Error(uiText.htmlResponse);
+  }
+  throw lastError ?? new Error(uiText.unknownError);
 }
 
 function App() {
@@ -52,7 +138,7 @@ function App() {
     event.preventDefault();
     const trimmed = situation.trim();
     if (trimmed.length < 1 || trimmed.length > 80) {
-      setError("상황은 1~80자로 입력해 주세요.");
+      setError(uiText.invalidSituation);
       return;
     }
 
@@ -61,41 +147,14 @@ function App() {
     setIsLoading(true);
 
     try {
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ situation: trimmed, tone })
-      });
-
-      const contentType = response.headers.get("content-type") ?? "";
-      const rawBody = await response.text();
-      let data: ApiResponse | null = null;
-
-      try {
-        data = JSON.parse(rawBody) as ApiResponse;
-      } catch {
-        data = null;
-      }
-
-      if (!data || (typeof data !== "object" && !Array.isArray(data))) {
-        throw new Error(
-          contentType.includes("text/html") || rawBody.trimStart().startsWith("<!DOCTYPE")
-            ? "API 응답이 HTML입니다. 로컬에서는 `npm run dev:pages`로 실행해 주세요."
-            : "서버 응답 파싱에 실패했습니다. 잠시 후 다시 시도해 주세요."
-        );
-      }
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "문장 생성에 실패했습니다.");
-      }
-
-      setLines(data.lines);
+      const generatedLines = await requestGeneratedLines({ situation: trimmed, tone });
+      setLines(generatedLines);
 
       const updated = [trimmed, ...recentSearches.filter((item) => item !== trimmed)].slice(0, 5);
       setRecentSearches(updated);
       saveRecentSearches(updated);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.";
+      const message = err instanceof Error ? err.message : uiText.unknownError;
       setError(message);
     } finally {
       setIsLoading(false);
@@ -124,10 +183,10 @@ function App() {
   const handleCopy = async (line: string) => {
     try {
       await navigator.clipboard.writeText(line);
-      setToast("복사됨");
+      setToast(uiText.copied);
       setTimeout(() => setToast(""), 1000);
     } catch {
-      setToast("복사 실패");
+      setToast(uiText.copyFailed);
       setTimeout(() => setToast(""), 1000);
     }
   };
@@ -136,8 +195,8 @@ function App() {
     <div className="page">
       <main className="container">
         <header className="hero">
-          <h1>메신저 답장 한줄</h1>
-          <p>답장은 이제 고민 말고 검색하자!</p>
+          <h1>{uiText.title}</h1>
+          <p>{uiText.subtitle}</p>
         </header>
 
         <section className="panel" ref={searchPanelRef}>
@@ -153,7 +212,7 @@ function App() {
                 value={situation}
                 onChange={(e) => handleSituationChange(e.target.value)}
                 maxLength={80}
-                placeholder="예: 소개팅 거절 / 늦잠 사과 / 읽씹 복구"
+                placeholder={uiText.inputPlaceholder}
               />
             </label>
 
@@ -195,17 +254,17 @@ function App() {
 
             {lines.length > 0 ? (
               <button type="button" className="submit-btn" onClick={handleResetForResearch}>
-                다시 검색
+                {uiText.regenerate}
               </button>
             ) : (
               <button type="submit" className="submit-btn" disabled={!canSubmit}>
-                {isLoading ? "생성 중..." : "멘트 3개 보기"}
+                {isLoading ? uiText.loading : uiText.showLines}
               </button>
             )}
           </form>
         </section>
 
-        {isLoading && <p className="status-text">문장을 만드는 중...</p>}
+        {isLoading && <p className="status-text">{uiText.loading}</p>}
         {!isLoading && error && <p className="error">{error}</p>}
 
         {!isLoading && !error && lines.length > 0 && (
@@ -214,14 +273,14 @@ function App() {
               <article className="result-card" key={`line-${index}`}>
                 <p className="result-line">{line}</p>
                 <button type="button" className="copy-btn" onClick={() => handleCopy(line)}>
-                  📋 복사
+                  {uiText.copy}
                 </button>
               </article>
             ))}
           </section>
         )}
 
-        <footer className="footer-note">이곳은 기록을 남기지 않습니다.</footer>
+        <footer className="footer-note">{uiText.footer}</footer>
       </main>
 
       {toast && <div className="toast">{toast}</div>}
