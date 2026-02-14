@@ -1,0 +1,5 @@
+﻿name = "tellme-mvp"
+compatibility_date = "2026-02-14"
+
+[vars]
+# OPENAI_API_KEY 는 로컬 .dev.vars 또는 Pages 환경변수로 설정
