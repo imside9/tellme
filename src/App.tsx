@@ -5,6 +5,7 @@ type Tone = "polite" | "cool" | "funny";
 type ResultResponse = {
   lines: string[];
 };
+type ApiResponse = ResultResponse & { error?: string };
 
 const toneOptions: Array<{ key: Tone; label: string }> = [
   { key: "polite", label: "공손" },
@@ -66,7 +67,23 @@ function App() {
         body: JSON.stringify({ situation: trimmed, tone })
       });
 
-      const data = (await response.json()) as ResultResponse & { error?: string };
+      const contentType = response.headers.get("content-type") ?? "";
+      const rawBody = await response.text();
+      let data: ApiResponse | null = null;
+
+      try {
+        data = JSON.parse(rawBody) as ApiResponse;
+      } catch {
+        data = null;
+      }
+
+      if (!data || (typeof data !== "object" && !Array.isArray(data))) {
+        throw new Error(
+          contentType.includes("text/html") || rawBody.trimStart().startsWith("<!DOCTYPE")
+            ? "API 응답이 HTML입니다. 로컬에서는 `npm run dev:pages`로 실행해 주세요."
+            : "서버 응답 파싱에 실패했습니다. 잠시 후 다시 시도해 주세요."
+        );
+      }
 
       if (!response.ok) {
         throw new Error(data.error ?? "문장 생성에 실패했습니다.");
